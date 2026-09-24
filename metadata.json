@@ -1,0 +1,6 @@
+{
+  "name": "MotoGestión - Sistema Inteligente de Inventarios y Presupuesto",
+  "description": "Prototipo de gestión, simulación predictiva y administración presupuestal de inventarios para centros de servicio técnico de motocicletas según Proyecto 4 UCC.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
