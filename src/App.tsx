@@ -15,6 +15,7 @@ import { MovementModal } from './components/modals/MovementModal';
 import { AddProductModal } from './components/modals/AddProductModal';
 import { PromoPackageModal } from './components/modals/PromoPackageModal';
 import { OrderConfirmationModal } from './components/modals/OrderConfirmationModal';
+import { ConfigModal } from './components/modals/ConfigModal';
 import { SuggestedPurchaseItem } from './types/inventory';
 import { Check } from 'lucide-react';
 
@@ -28,6 +29,7 @@ export default function App() {
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [orderTotalCOP, setOrderTotalCOP] = useState(0);
   const [orderItems, setOrderItems] = useState<SuggestedPurchaseItem[]>([]);
 
@@ -74,6 +76,7 @@ export default function App() {
         currentTab={currentTab}
         onTabChange={(tab) => setCurrentTab(tab)}
         onOpenMovementModal={() => handleOpenMovementModal()}
+        onOpenConfigModal={() => setIsConfigModalOpen(true)}
       />
 
       {/* Main App Container */}
@@ -146,6 +149,12 @@ export default function App() {
         totalCOP={orderTotalCOP}
         items={orderItems}
         onConfirm={() => triggerToast(`Orden formal por $ ${orderTotalCOP.toLocaleString('es-CO')} COP aprobada y enviada a proveedores.`)}
+      />
+
+      <ConfigModal
+        isOpen={isConfigModalOpen}
+        onClose={() => setIsConfigModalOpen(false)}
+        onSaveSuccess={(msg) => triggerToast(msg)}
       />
     </div>
   );
