@@ -20,9 +20,10 @@ import { SimulationScenarioResult } from '../types/inventory';
 
 interface SimulationViewProps {
   onNavigateToPurchases: () => void;
+  onShowToast?: (msg: string) => void;
 }
 
-export const SimulationView: React.FC<SimulationViewProps> = ({ onNavigateToPurchases }) => {
+export const SimulationView: React.FC<SimulationViewProps> = ({ onNavigateToPurchases, onShowToast }) => {
   const [budgetInput, setBudgetInput] = useState<number>(2500000);
   const [period, setPeriod] = useState<string>('next_month');
   const [strategy, setStrategy] = useState<string>('clase_a');
@@ -30,6 +31,32 @@ export const SimulationView: React.FC<SimulationViewProps> = ({ onNavigateToPurc
   const [simulationResult, setSimulationResult] = useState<SimulationScenarioResult>(() => 
     inventoryService.simulateScenario(2500000, 'next_month', 'clase_a')
   );
+
+  const handleExportSimulationCsv = () => {
+    const headers = ['SKU', 'Repuesto', 'Modelos Compatibles', 'Clase ABC', 'Cantidad Sugerida', 'Unidad', 'Costo Unitario (COP)', 'Costo Total (COP)', 'Proveedor Habitual', 'Justificacion'];
+    const rows = simulationResult.items_sugeridos.map(i => [
+      i.sku,
+      `"${i.nombre}"`,
+      `"${i.modelos}"`,
+      i.clasificacion_abc,
+      i.cantidad_sugerida,
+      i.unidad_medida,
+      i.costo_unitario,
+      i.costo_estimado,
+      `"${i.proveedor}"`,
+      `"${i.justificacion}"`
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.href = encodedUri;
+    link.download = `Orden_Sugerida_Simulacion_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    if (onShowToast) onShowToast('Lista de compras para proveedores exportada en formato CSV.');
+  };
 
   const handleAdjustBudget = (delta: number) => {
     const updated = Math.max(500000, budgetInput + delta);
@@ -526,11 +553,11 @@ export const SimulationView: React.FC<SimulationViewProps> = ({ onNavigateToPurc
         <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2">
           <button
             type="button"
-            onClick={() => alert('Lista de compras exportada en formato Excel / PDF para proveedores.')}
+            onClick={handleExportSimulationCsv}
             className="w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs font-bold bg-[#eff4ff] hover:bg-[#e5eeff] text-[#0b1c30] flex items-center justify-center gap-2 transition-colors border border-[#dce9ff]/60"
           >
             <Download className="w-4 h-4 text-[#707881]" />
-            <span>Exportar lista de compras para proveedores</span>
+            <span>Exportar lista de compras (CSV)</span>
           </button>
           <button
             type="button"

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Download, 
   PlusCircle, 
@@ -21,16 +21,71 @@ interface DashboardViewProps {
   onNavigate: (tab: string) => void;
   onOpenMovementModal: () => void;
   onOpenPromoModal: () => void;
+  onShowToast: (msg: string) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ 
   onNavigate, 
   onOpenMovementModal,
-  onOpenPromoModal
+  onOpenPromoModal,
+  onShowToast
 }) => {
+  const [, setVersion] = useState(0);
+
+  // Subscribe to reactive inventory updates
+  useEffect(() => {
+    const unsubscribe = inventoryService.subscribe(() => {
+      setVersion(v => v + 1);
+    });
+    return unsubscribe;
+  }, []);
+
+  const repuestos = inventoryService.getRepuestos();
   const topMayor = inventoryService.getTopMayorRotacion();
   const topMenor = inventoryService.getTopMenorRotacion();
   const criticalAlerts = inventoryService.getCriticalAlerts();
+  const totalValuationCOP = inventoryService.getValuationCOP();
+  const statusCounts = inventoryService.getStockStatusCounts();
+  const budgetCOP = inventoryService.getCurrentBudgetCOP();
+  const budgetUSD = Math.round(budgetCOP / 4000);
+
+  const handleDownloadReport = () => {
+    const reportContent = `=====================================================
+INFORME OPERATIVO Y FINANCIERO - MOTOGESTIÓN
+Taller Central - Box 1 | Jefe de Taller: Carlos Mendoza
+Fecha: ${new Date().toLocaleDateString('es-CO')}
+=====================================================
+
+1. RESUMEN FINANCIERO:
+- Presupuesto Disponible: ${formatCOP(budgetCOP)} (≈ $ ${budgetUSD.toLocaleString('en-US')} USD)
+- Valor Total Inventario: ${formatCOP(totalValuationCOP)}
+- Referencias Activas en Bodega: ${repuestos.length} repuestos (${statusCounts.enStock} en stock, ${statusCounts.bajoStock} en stock mínimo, ${statusCounts.agotado} agotados)
+
+2. ALERTAS DE STOCK CRÍTICO:
+${criticalAlerts.length === 0 ? 'Sin alertas críticas en este momento. Stock óptimo.' : criticalAlerts.map(a => `• ${a.nombre} [SKU: ${a.sku}]: ${a.stock_actual} unid (Mín: ${a.stock_minimo}, Déficit: -${a.deficit}) - Prov: ${a.proveedor}`).join('\n')}
+
+3. TOP 5 MAYOR ROTACIÓN (30 DÍAS):
+${topMayor.map((m, i) => `${i + 1}. ${m.nombre}: ${m.unidades} unids instaladas (${m.objetivo_rotacion_pct}% rotación)`).join('\n')}
+
+4. CAPITAL INMOVILIZADO EN REPUESTOS DORMIDOS:
+${topMenor.map((m, i) => `${i + 1}. ${m.nombre}: ${m.dias} días inactivo - $${m.capital_usd} USD (${m.sugerencia})`).join('\n')}
+Total Capital Dormido Top 5: $455.00 USD (≈ $ 1.820.000 COP)
+
+5. RECOMENDACIÓN INTELIGENTE:
+Lanzar paquete promocional de mantenimiento preventivo para recuperar el capital estancado.
+`;
+
+    const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Resumen_Operativo_MotoGestion_${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    onShowToast('Informe operativo descargado con éxito.');
+  };
 
   return (
     <div className="flex flex-col gap-6 w-full animate-fadeIn pb-12">
@@ -51,13 +106,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <button 
-            onClick={() => alert('Generando informe ejecutivo del taller en PDF...')}
+            onClick={handleDownloadReport}
             className="flex items-center gap-2 bg-white hover:bg-[#eff4ff] text-[#515f74] hover:text-[#0b1c30] px-3.5 py-2 rounded-xl text-xs font-semibold border border-[#e5eeff] shadow-xs transition-colors"
           >
             <Download className="w-3.5 h-3.5 text-[#707881]" />
-            <span>Descargar Resumen (PDF)</span>
+            <span>Descargar Resumen (TXT)</span>
           </button>
           <button
             onClick={onOpenMovementModal}
@@ -65,7 +120,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           >
             <PlusCircle className="w-4 h-4" />
             <span>+ Registrar Movimiento</span>
-            <span className="text-[10px] bg-white/20 px-1.5 py-0.2 rounded font-mono ml-0.5">F2</span>
+            <span className="text-[10px] bg-white/20 px-1.5 py-0.2 rounded font-mono ml-0.5 hidden sm:inline">F2</span>
           </button>
         </div>
       </div>
@@ -82,18 +137,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="my-3">
             <div className="flex items-baseline gap-1 text-[#0b1c30]">
-              <span className="text-3xl font-extrabold tracking-tight">$ 4,850.00</span>
-              <span className="text-xs font-bold text-[#515f74]">USD</span>
+              <span className="text-3xl font-extrabold tracking-tight">{formatCOP(budgetCOP)}</span>
             </div>
             <div className="text-[11px] text-[#515f74] mt-0.5 font-medium">
-              ≈ $ 19.400.000 COP asignados al mes
+              ≈ $ {budgetUSD.toLocaleString('en-US')} USD asignados para reposición
             </div>
           </div>
           <div className="flex items-center justify-between pt-2 border-t border-[#f0f4fa] text-xs">
             <span className="inline-flex items-center text-[#006947] font-semibold">
-              <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" /> +12.4% vs mes anterior
+              <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" /> Fondo disponible
             </span>
-            <span className="text-[#707881] font-medium">65% de $7,500</span>
+            <button 
+              onClick={() => onNavigate('compras-presupuesto')}
+              className="text-[#006194] font-bold hover:underline"
+            >
+              Gestionar
+            </button>
           </div>
         </div>
 
@@ -107,17 +166,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="my-3">
             <div className="flex items-baseline gap-1 text-[#0b1c30]">
-              <span className="text-3xl font-extrabold tracking-tight">$ 18,920.00</span>
-              <span className="text-xs font-bold text-[#515f74]">USD</span>
+              <span className="text-3xl font-extrabold tracking-tight">{formatCOP(totalValuationCOP)}</span>
             </div>
             <div className="text-[11px] text-[#515f74] mt-0.5 font-medium">
-              Costo de compra en bodega: $ 75.680.000 COP
+              ≈ $ {Math.round(totalValuationCOP / 4000).toLocaleString('en-US')} USD en existencias físicas
             </div>
           </div>
           <div className="flex items-center justify-between pt-2 border-t border-[#f0f4fa] text-xs text-[#707881]">
-            <span className="truncate">Costo de compra (1,432 piezas)</span>
+            <span className="truncate">Costo de compra en bodega</span>
             <span className="inline-flex items-center gap-1 font-semibold text-[#006194]">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#006194]" /> Auditado hace 2d
+              <span className="w-1.5 h-1.5 rounded-full bg-[#006194]" /> Sincronizado
             </span>
           </div>
         </div>
@@ -132,22 +190,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="my-3">
             <div className="flex items-baseline gap-1 text-[#0b1c30]">
-              <span className="text-3xl font-extrabold tracking-tight">348</span>
+              <span className="text-3xl font-extrabold tracking-tight">{repuestos.length}</span>
               <span className="text-xs font-medium text-[#515f74]">repuestos</span>
             </div>
             <div className="text-[11px] text-[#515f74] mt-0.5 font-medium">
-              Capacidad de bodega: 84% de ocupación
+              {repuestos.reduce((acc, r) => acc + r.stock_actual, 0)} unidades físicas totales
             </div>
           </div>
           <div className="flex items-center gap-3 pt-2 border-t border-[#f0f4fa] text-xs font-semibold">
             <span className="text-[#006947] flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#006947]" /> 312 OK
+              <span className="w-1.5 h-1.5 rounded-full bg-[#006947]" /> {statusCounts.enStock} OK
             </span>
             <span className="text-[#f59e0b] flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b]" /> 24 mínimos
+              <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b]" /> {statusCounts.bajoStock} mínimos
             </span>
             <span className="text-[#ba1a1a] flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#ba1a1a]" /> 12 agotados
+              <span className="w-1.5 h-1.5 rounded-full bg-[#ba1a1a]" /> {statusCounts.agotado} agotados
             </span>
           </div>
         </div>
@@ -172,46 +230,52 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {criticalAlerts.slice(0, 4).map((alert) => (
-            <div
-              key={alert.id}
-              className="p-4 rounded-xl bg-[#eff4ff]/60 border border-[#dce9ff] flex flex-col justify-between gap-3 hover:bg-[#eff4ff] transition-colors"
-            >
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center justify-between">
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    alert.stock_actual === 0 
-                      ? 'bg-[#ffdad6] text-[#93000a]' 
-                      : 'bg-[#fffbeb] text-[#92400e]'
-                  }`}>
-                    {alert.stock_actual === 0 ? 'Agotado (0 unid)' : `${alert.stock_actual} unid disponibles`}
+        {criticalAlerts.length === 0 ? (
+          <div className="p-6 rounded-xl bg-[#ecfdf5] border border-[#a7f3d0] text-center text-xs text-[#065f46]">
+            ✓ ¡Excelente! Todos los repuestos tienen existencias por encima de su nivel de reorden mínimo.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {criticalAlerts.slice(0, 4).map((alert) => (
+              <div
+                key={alert.id}
+                className="p-4 rounded-xl bg-[#eff4ff]/60 border border-[#dce9ff] flex flex-col justify-between gap-3 hover:bg-[#eff4ff] transition-colors"
+              >
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      alert.stock_actual === 0 
+                        ? 'bg-[#ffdad6] text-[#93000a]' 
+                        : 'bg-[#fffbeb] text-[#92400e]'
+                    }`}>
+                      {alert.stock_actual === 0 ? 'Agotado (0 unid)' : `${alert.stock_actual} unid disponibles`}
+                    </span>
+                    <span className="text-[11px] font-bold text-[#ba1a1a]">
+                      Déficit: -{alert.deficit} u.
+                    </span>
+                  </div>
+                  <h3 className="text-xs font-bold text-[#0b1c30] line-clamp-1 mt-1" title={alert.nombre}>
+                    {alert.nombre}
+                  </h3>
+                  <span className="text-[11px] text-[#515f74]">
+                    SKU: {alert.sku} • Mín: {alert.stock_minimo} u.
                   </span>
-                  <span className="text-[11px] font-bold text-[#ba1a1a]">
-                    Déficit: -{alert.deficit} u.
+                  <span className="text-[10px] text-[#707881] truncate">
+                    Proveedor: {alert.proveedor}
                   </span>
                 </div>
-                <h3 className="text-xs font-bold text-[#0b1c30] line-clamp-1 mt-1" title={alert.nombre}>
-                  {alert.nombre}
-                </h3>
-                <span className="text-[11px] text-[#515f74]">
-                  SKU: {alert.sku} • Mín: {alert.stock_minimo} u.
-                </span>
-                <span className="text-[10px] text-[#707881] truncate">
-                  Proveedor: {alert.proveedor}
-                </span>
-              </div>
 
-              <button
-                onClick={() => onNavigate('compras-presupuesto')}
-                className="w-full flex items-center justify-center gap-1.5 bg-[#006194] hover:bg-[#007bb9] text-white py-1.5 rounded-lg text-xs font-semibold shadow-xs transition-colors"
-              >
-                <ShoppingCart className="w-3 h-3" />
-                <span>Pedir al proveedor</span>
-              </button>
-            </div>
-          ))}
-        </div>
+                <button
+                  onClick={() => onNavigate('compras-presupuesto')}
+                  className="w-full flex items-center justify-center gap-1.5 bg-[#006194] hover:bg-[#007bb9] text-white py-1.5 rounded-lg text-xs font-semibold shadow-xs transition-colors"
+                >
+                  <ShoppingCart className="w-3 h-3" />
+                  <span>Pedir al proveedor</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 4. Two Columns: Top 5 Mayor Rotación vs Top 5 Menor Rotación (Dormidos) */}
@@ -336,7 +400,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
           <button
-            onClick={() => alert('Notificación pospuesta por 7 días.')}
+            onClick={() => onShowToast('Recordatorio pospuesto por 7 días.')}
             className="flex-1 sm:flex-none px-3.5 py-2 rounded-xl text-xs font-semibold text-[#515f74] hover:bg-white hover:text-[#0b1c30] transition-colors"
           >
             Ignorar por ahora

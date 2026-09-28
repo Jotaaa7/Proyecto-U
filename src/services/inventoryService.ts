@@ -27,13 +27,86 @@ export function formatUSD(amount: number): string {
   return '$ ' + amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USD';
 }
 
-// In-Memory Reactive Store
+const STORAGE_KEYS = {
+  REPUESTOS: 'motogestion_repuestos_v2',
+  PURCHASES: 'motogestion_purchases_v2',
+  BUDGET: 'motogestion_budget_v2',
+  OPPORTUNITIES: 'motogestion_opportunities_v2',
+  DISCONTINUE: 'motogestion_discontinue_v2'
+};
+
+type Listener = () => void;
+
+// In-Memory Reactive Store with LocalStorage Persistence & Subscribers
 class InventoryService {
-  private repuestos: Repuesto[] = [...INITIAL_REPUESTOS];
-  private purchases: SuggestedPurchaseItem[] = [...INITIAL_SUGGESTED_PURCHASES];
-  private opportunities: MarketOpportunity[] = [...INITIAL_OPPORTUNITIES];
-  private discontinueAlerts: DiscontinueAlert[] = [...INITIAL_DISCONTINUE_ALERTS];
+  private repuestos: Repuesto[] = [];
+  private purchases: SuggestedPurchaseItem[] = [];
+  private opportunities: MarketOpportunity[] = [];
+  private discontinueAlerts: DiscontinueAlert[] = [];
   private currentBudgetCOP: number = 3500000;
+  private listeners: Set<Listener> = new Set();
+
+  constructor() {
+    this.loadState();
+  }
+
+  private loadState() {
+    try {
+      const savedRepuestos = localStorage.getItem(STORAGE_KEYS.REPUESTOS);
+      this.repuestos = savedRepuestos ? JSON.parse(savedRepuestos) : [...INITIAL_REPUESTOS];
+
+      const savedPurchases = localStorage.getItem(STORAGE_KEYS.PURCHASES);
+      this.purchases = savedPurchases ? JSON.parse(savedPurchases) : [...INITIAL_SUGGESTED_PURCHASES];
+
+      const savedBudget = localStorage.getItem(STORAGE_KEYS.BUDGET);
+      this.currentBudgetCOP = savedBudget ? Number(savedBudget) : 3500000;
+
+      const savedOpps = localStorage.getItem(STORAGE_KEYS.OPPORTUNITIES);
+      this.opportunities = savedOpps ? JSON.parse(savedOpps) : [...INITIAL_OPPORTUNITIES];
+
+      const savedDisc = localStorage.getItem(STORAGE_KEYS.DISCONTINUE);
+      this.discontinueAlerts = savedDisc ? JSON.parse(savedDisc) : [...INITIAL_DISCONTINUE_ALERTS];
+    } catch {
+      this.repuestos = [...INITIAL_REPUESTOS];
+      this.purchases = [...INITIAL_SUGGESTED_PURCHASES];
+      this.opportunities = [...INITIAL_OPPORTUNITIES];
+      this.discontinueAlerts = [...INITIAL_DISCONTINUE_ALERTS];
+      this.currentBudgetCOP = 3500000;
+    }
+  }
+
+  private persistState() {
+    try {
+      localStorage.setItem(STORAGE_KEYS.REPUESTOS, JSON.stringify(this.repuestos));
+      localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(this.purchases));
+      localStorage.setItem(STORAGE_KEYS.BUDGET, this.currentBudgetCOP.toString());
+      localStorage.setItem(STORAGE_KEYS.OPPORTUNITIES, JSON.stringify(this.opportunities));
+      localStorage.setItem(STORAGE_KEYS.DISCONTINUE, JSON.stringify(this.discontinueAlerts));
+    } catch {
+      // ignore storage quota issues
+    }
+    this.notify();
+  }
+
+  subscribe(listener: Listener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify() {
+    this.listeners.forEach(fn => fn());
+  }
+
+  resetToDefaults() {
+    this.repuestos = [...INITIAL_REPUESTOS];
+    this.purchases = [...INITIAL_SUGGESTED_PURCHASES];
+    this.opportunities = [...INITIAL_OPPORTUNITIES];
+    this.discontinueAlerts = [...INITIAL_DISCONTINUE_ALERTS];
+    this.currentBudgetCOP = 3500000;
+    this.persistState();
+  }
 
   getRepuestos(): Repuesto[] {
     return [...this.repuestos];
@@ -52,6 +125,27 @@ class InventoryService {
         proveedor: r.proveedor,
         estado: r.estado
       }));
+  }
+
+  getValuationCOP(): number {
+    return this.repuestos.reduce((acc, r) => acc + (r.stock_actual * r.precio_costo), 0);
+  }
+
+  getAbcCounts(): { A: number; B: number; C: number } {
+    return {
+      A: this.repuestos.filter(r => r.clasificacion_abc === 'A').length,
+      B: this.repuestos.filter(r => r.clasificacion_abc === 'B').length,
+      C: this.repuestos.filter(r => r.clasificacion_abc === 'C').length
+    };
+  }
+
+  getStockStatusCounts(): { enStock: number; bajoStock: number; agotado: number; pausado: number } {
+    return {
+      enStock: this.repuestos.filter(r => r.estado === 'EN_STOCK').length,
+      bajoStock: this.repuestos.filter(r => r.estado === 'BAJO_STOCK').length,
+      agotado: this.repuestos.filter(r => r.estado === 'AGOTADO').length,
+      pausado: this.repuestos.filter(r => r.estado === 'PAUSADO').length
+    };
   }
 
   getTopMayorRotacion() {
@@ -80,6 +174,7 @@ class InventoryService {
 
   setCurrentBudgetCOP(amount: number) {
     this.currentBudgetCOP = amount;
+    this.persistState();
   }
 
   registerMovement(repuestoId: number, tipo: 'ENTRADA' | 'SALIDA', cantidad: number, motivo: string): { success: boolean; message: string } {
@@ -92,8 +187,10 @@ class InventoryService {
       }
       item.stock_actual -= cantidad;
       item.dias_sin_movimiento = 0;
+      item.ventas_ultimos_30d = (item.ventas_ultimos_30d || 0) + cantidad;
     } else {
       item.stock_actual += cantidad;
+      item.dias_sin_movimiento = 0;
     }
 
     // Actualizar estado
@@ -105,21 +202,54 @@ class InventoryService {
       item.estado = 'EN_STOCK';
     }
 
-    return { success: true, message: `Movimiento de ${cantidad} unidades registrado para ${item.nombre}` };
+    this.persistState();
+    return { 
+      success: true, 
+      message: `${tipo === 'ENTRADA' ? 'Entrada' : 'Salida'} de ${cantidad} unidades registrada para "${item.nombre}". Stock resultante: ${item.stock_actual} unid.` 
+    };
+  }
+
+  updateRepuesto(id: number, updatedData: Partial<Repuesto>): { success: boolean; message: string } {
+    const item = this.repuestos.find(r => r.id === id);
+    if (!item) return { success: false, message: 'Repuesto no encontrado' };
+
+    Object.assign(item, updatedData);
+
+    if (item.stock_actual === 0) {
+      item.estado = 'AGOTADO';
+    } else if (item.stock_actual <= item.stock_minimo) {
+      item.estado = 'BAJO_STOCK';
+    } else {
+      item.estado = 'EN_STOCK';
+    }
+
+    this.persistState();
+    return { success: true, message: `Repuesto "${item.nombre}" actualizado correctamente.` };
   }
 
   addRepuesto(newRepuesto: Omit<Repuesto, 'id' | 'dias_sin_movimiento' | 'estado' | 'ventas_ultimos_30d'>): Repuesto {
-    const id = this.repuestos.length + 1;
+    const nextId = this.repuestos.length > 0 ? Math.max(...this.repuestos.map(r => r.id)) + 1 : 1;
     const estado = newRepuesto.stock_actual === 0 ? 'AGOTADO' : (newRepuesto.stock_actual <= newRepuesto.stock_minimo ? 'BAJO_STOCK' : 'EN_STOCK');
     const created: Repuesto = {
       ...newRepuesto,
-      id,
+      id: nextId,
       dias_sin_movimiento: 0,
       estado,
       ventas_ultimos_30d: 0
     };
     this.repuestos.unshift(created);
+    this.persistState();
     return created;
+  }
+
+  deleteRepuesto(id: number): boolean {
+    const initialLen = this.repuestos.length;
+    this.repuestos = this.repuestos.filter(r => r.id !== id);
+    if (this.repuestos.length !== initialLen) {
+      this.persistState();
+      return true;
+    }
+    return false;
   }
 
   pauseSku(repuestoId: number): boolean {
@@ -128,6 +258,7 @@ class InventoryService {
       item.estado = 'PAUSADO';
       const alert = this.discontinueAlerts.find(a => a.repuesto_id === repuestoId);
       if (alert) alert.pausado = true;
+      this.persistState();
       return true;
     }
     return false;
@@ -156,6 +287,7 @@ class InventoryService {
       justificacion: opp.justificacion
     };
     this.purchases.push(newItem);
+    this.persistState();
     return true;
   }
 
@@ -163,11 +295,13 @@ class InventoryService {
     const item = this.purchases.find(p => p.id === itemId);
     if (item) {
       item.aprobado = approved;
+      this.persistState();
     }
   }
 
   setAllPurchasesApproved(approved: boolean) {
     this.purchases.forEach(p => p.aprobado = approved);
+    this.persistState();
   }
 
   // Ejecución Matemática del Algoritmo de Simulación (Réplica exacta de inventory_ai.py)
@@ -178,7 +312,7 @@ class InventoryService {
     let pctReserva = 0.20;
     if (estrategia === 'minimo_riesgo') pctReserva = 0.35;
     else if (estrategia === 'balanceado') pctReserva = 0.25;
-    else pctReserva = budget >= 2500000 ? 0.344 : 0.20; // 860.000 / 2.500.000 = ~34.4%
+    else pctReserva = budget >= 2500000 ? 0.344 : 0.20;
 
     const fondoReserva = Math.round(budget * pctReserva);
     const presupuestoCompras = budget - fondoReserva;
@@ -268,7 +402,6 @@ class InventoryService {
       }
     }
 
-    // Cobertura estimada: entre 80% y 98% según presupuesto
     const cobertura = Math.min(98.5, Math.max(68.0, 75 + (budget / 2500000) * 19));
     const riesgoEscasez = budget >= 2500000 ? 2 : (budget >= 1500000 ? 4 : 8);
     const capitalInmovilizado = Math.round(budget * 0.128);

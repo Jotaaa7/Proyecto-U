@@ -2,19 +2,16 @@ import React, { useState } from 'react';
 import { 
   Terminal, 
   Database, 
-  Cpu, 
   FileCode, 
-  FolderTree, 
   Copy, 
   Check, 
   Play, 
   Download, 
   BookOpen, 
   Calculator,
-  Layers,
   Sparkles
 } from 'lucide-react';
-import { inventoryService, formatCOP } from '../services/inventoryService';
+import { inventoryService } from '../services/inventoryService';
 
 export const BackendDevHubView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'sql' | 'math' | 'api' | 'guide' | 'tester'>('sql');
@@ -30,6 +27,18 @@ export const BackendDevHubView: React.FC = () => {
     navigator.clipboard.writeText(text);
     setCopied(key);
     setTimeout(() => setCopied(null), 2000);
+  };
+
+  const handleDownload = (filename: string, content: string) => {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const runApiTest = () => {
@@ -292,20 +301,29 @@ def run_simulation(req: SimulationRequest):
       {/* 3. Tab Contents */}
       {activeTab === 'sql' && (
         <div className="bg-white rounded-2xl p-6 border border-[#e5eeff] shadow-xs flex flex-col gap-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <Database className="w-5 h-5 text-[#006194]" />
               <h2 className="text-base font-bold text-[#0b1c30]">
                 Esquema de Base de Datos Relacional (`backend/database.sql`)
               </h2>
             </div>
-            <button
-              onClick={() => handleCopy('sql', sqlScript)}
-              className="flex items-center gap-1.5 text-xs font-bold text-[#006194] hover:bg-[#eff4ff] px-3 py-1.5 rounded-lg transition-colors border border-[#dce9ff]"
-            >
-              {copied === 'sql' ? <Check className="w-4 h-4 text-[#4edea3]" /> : <Copy className="w-4 h-4" />}
-              <span>{copied === 'sql' ? 'Copiado!' : 'Copiar SQL'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleDownload('database.sql', sqlScript)}
+                className="flex items-center gap-1.5 text-xs font-bold text-[#0b1c30] hover:bg-[#eff4ff] px-3 py-1.5 rounded-lg transition-colors border border-[#dce9ff]"
+              >
+                <Download className="w-3.5 h-3.5 text-[#006194]" />
+                <span>Descargar database.sql</span>
+              </button>
+              <button
+                onClick={() => handleCopy('sql', sqlScript)}
+                className="flex items-center gap-1.5 text-xs font-bold text-[#006194] hover:bg-[#eff4ff] px-3 py-1.5 rounded-lg transition-colors border border-[#dce9ff]"
+              >
+                {copied === 'sql' ? <Check className="w-4 h-4 text-[#4edea3]" /> : <Copy className="w-4 h-4 text-[#006194]" />}
+                <span>{copied === 'sql' ? '¡Copiado!' : 'Copiar SQL'}</span>
+              </button>
+            </div>
           </div>
 
           <p className="text-xs text-[#515f74]">
@@ -320,42 +338,34 @@ def run_simulation(req: SimulationRequest):
 
       {activeTab === 'math' && (
         <div className="bg-white rounded-2xl p-6 border border-[#e5eeff] shadow-xs flex flex-col gap-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <Calculator className="w-5 h-5 text-[#006194]" />
               <h2 className="text-base font-bold text-[#0b1c30]">
                 Módulo Científico y Predictivo (`backend/inventory_ai.py`)
               </h2>
             </div>
-            <button
-              onClick={() => handleCopy('math', pythonMathScript)}
-              className="flex items-center gap-1.5 text-xs font-bold text-[#006194] hover:bg-[#eff4ff] px-3 py-1.5 rounded-lg transition-colors border border-[#dce9ff]"
-            >
-              {copied === 'math' ? <Check className="w-4 h-4 text-[#4edea3]" /> : <Copy className="w-4 h-4" />}
-              <span>{copied === 'math' ? 'Copiado!' : 'Copiar Python'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleDownload('inventory_ai.py', pythonMathScript)}
+                className="flex items-center gap-1.5 text-xs font-bold text-[#0b1c30] hover:bg-[#eff4ff] px-3 py-1.5 rounded-lg transition-colors border border-[#dce9ff]"
+              >
+                <Download className="w-3.5 h-3.5 text-[#006194]" />
+                <span>Descargar inventory_ai.py</span>
+              </button>
+              <button
+                onClick={() => handleCopy('math', pythonMathScript)}
+                className="flex items-center gap-1.5 text-xs font-bold text-[#006194] hover:bg-[#eff4ff] px-3 py-1.5 rounded-lg transition-colors border border-[#dce9ff]"
+              >
+                {copied === 'math' ? <Check className="w-4 h-4 text-[#4edea3]" /> : <Copy className="w-4 h-4 text-[#006194]" />}
+                <span>{copied === 'math' ? '¡Copiado!' : 'Copiar Python'}</span>
+              </button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-            <div className="p-3.5 rounded-xl bg-[#eff4ff] border border-[#dce9ff]/60">
-              <span className="font-bold text-[#006194] block">1. Pareto ABC (80/20)</span>
-              <span className="text-[#515f74] text-[11px] mt-1 block">
-                Valor rotado = Demanda × Costo. Clase A (≤70% valor), B (70-90%), C (&gt;90%).
-              </span>
-            </div>
-            <div className="p-3.5 rounded-xl bg-[#eff4ff] border border-[#dce9ff]/60">
-              <span className="font-bold text-[#006194] block">2. Modelo EOQ &amp; ROP</span>
-              <span className="text-[#515f74] text-[11px] mt-1 block">
-                Q* = √(2DS/H). ROP = (d × L) + Z × σ × √L. Minimiza costo de pedido y almacenamiento.
-              </span>
-            </div>
-            <div className="p-3.5 rounded-xl bg-[#eff4ff] border border-[#dce9ff]/60">
-              <span className="font-bold text-[#006194] block">3. Regresión &amp; Quincena</span>
-              <span className="text-[#515f74] text-[11px] mt-1 block">
-                Ajuste OLS lineal y modulación de picos de quincena en Colombia (días 15 y 30).
-              </span>
-            </div>
-          </div>
+          <p className="text-xs text-[#515f74]">
+            Implementación en <strong>Python (Pandas, NumPy, Scikit-Learn)</strong> con las fórmulas analíticas de la tesis: <strong>Pareto ABC (80/20)</strong> por valor movilizado, <strong>EOQ</strong> (Lote Óptimo de Compra), <strong>ROP</strong> (Punto de Reorden) y proyección estacional con picos en los días 15 y 30.
+          </p>
 
           <pre className="p-4 rounded-xl bg-[#0b1c30] text-[#eaf1ff] text-xs font-mono overflow-x-auto max-h-[500px] leading-relaxed">
             {pythonMathScript}
@@ -365,52 +375,34 @@ def run_simulation(req: SimulationRequest):
 
       {activeTab === 'api' && (
         <div className="bg-white rounded-2xl p-6 border border-[#e5eeff] shadow-xs flex flex-col gap-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <Terminal className="w-5 h-5 text-[#006194]" />
               <h2 className="text-base font-bold text-[#0b1c30]">
-                Endpoints del Backend FastAPI (`backend/main.py`)
+                Servidor FastAPI (`backend/main.py`)
               </h2>
             </div>
-            <button
-              onClick={() => handleCopy('api', fastapiScript)}
-              className="flex items-center gap-1.5 text-xs font-bold text-[#006194] hover:bg-[#eff4ff] px-3 py-1.5 rounded-lg transition-colors border border-[#dce9ff]"
-            >
-              {copied === 'api' ? <Check className="w-4 h-4 text-[#4edea3]" /> : <Copy className="w-4 h-4" />}
-              <span>{copied === 'api' ? 'Copiado!' : 'Copiar API'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleDownload('main.py', fastapiScript)}
+                className="flex items-center gap-1.5 text-xs font-bold text-[#0b1c30] hover:bg-[#eff4ff] px-3 py-1.5 rounded-lg transition-colors border border-[#dce9ff]"
+              >
+                <Download className="w-3.5 h-3.5 text-[#006194]" />
+                <span>Descargar main.py</span>
+              </button>
+              <button
+                onClick={() => handleCopy('api', fastapiScript)}
+                className="flex items-center gap-1.5 text-xs font-bold text-[#006194] hover:bg-[#eff4ff] px-3 py-1.5 rounded-lg transition-colors border border-[#dce9ff]"
+              >
+                {copied === 'api' ? <Check className="w-4 h-4 text-[#4edea3]" /> : <Copy className="w-4 h-4 text-[#006194]" />}
+                <span>{copied === 'api' ? '¡Copiado!' : 'Copiar FastAPI'}</span>
+              </button>
+            </div>
           </div>
 
-          <div className="space-y-2 text-xs">
-            <div className="p-2.5 rounded-lg bg-[#eff4ff] flex items-center justify-between">
-              <div>
-                <span className="px-2 py-0.5 rounded bg-[#006194] text-white font-mono text-[10px] font-bold mr-2">GET</span>
-                <span className="font-mono text-[#0b1c30] font-semibold">/api/dashboard/stats</span>
-              </div>
-              <span className="text-[#515f74]">KPIs, Alertas de stock crítico y Top 5 rotación/dormidos</span>
-            </div>
-            <div className="p-2.5 rounded-lg bg-[#eff4ff] flex items-center justify-between">
-              <div>
-                <span className="px-2 py-0.5 rounded bg-[#006194] text-white font-mono text-[10px] font-bold mr-2">GET</span>
-                <span className="font-mono text-[#0b1c30] font-semibold">/api/inventory</span>
-              </div>
-              <span className="text-[#515f74]">Catálogo con filtros por categoría, ABC y estado</span>
-            </div>
-            <div className="p-2.5 rounded-lg bg-[#eff4ff] flex items-center justify-between">
-              <div>
-                <span className="px-2 py-0.5 rounded bg-[#00855b] text-white font-mono text-[10px] font-bold mr-2">POST</span>
-                <span className="font-mono text-[#0b1c30] font-semibold">/api/simulate</span>
-              </div>
-              <span className="text-[#515f74]">Ejecución predictiva con presupuesto, estrategia y periodos</span>
-            </div>
-            <div className="p-2.5 rounded-lg bg-[#eff4ff] flex items-center justify-between">
-              <div>
-                <span className="px-2 py-0.5 rounded bg-[#006194] text-white font-mono text-[10px] font-bold mr-2">GET</span>
-                <span className="font-mono text-[#0b1c30] font-semibold">/api/purchases/plan</span>
-              </div>
-              <span className="text-[#515f74]">Órdenes sugeridas, nuevos productos y SKUs a pausar</span>
-            </div>
-          </div>
+          <p className="text-xs text-[#515f74]">
+            Endpoints RESTful listos para conectar las pantallas exportadas de Stitch con la base de datos PostgreSQL en Render o en local.
+          </p>
 
           <pre className="p-4 rounded-xl bg-[#0b1c30] text-[#eaf1ff] text-xs font-mono overflow-x-auto max-h-[500px] leading-relaxed">
             {fastapiScript}
@@ -419,51 +411,34 @@ def run_simulation(req: SimulationRequest):
       )}
 
       {activeTab === 'guide' && (
-        <div className="bg-white rounded-2xl p-6 border border-[#e5eeff] shadow-xs flex flex-col gap-6 text-xs text-[#515f74]">
+        <div className="bg-white rounded-2xl p-6 border border-[#e5eeff] shadow-xs flex flex-col gap-6">
           <div className="flex items-center gap-2">
             <BookOpen className="w-5 h-5 text-[#006194]" />
             <h2 className="text-base font-bold text-[#0b1c30]">
-              Guía de Integración y Estructura de Carpetas
+              Guía de Estructura e Integración del Proyecto
             </h2>
           </div>
 
-          {/* Architecture Tree */}
-          <div className="bg-[#0b1c30] text-[#eaf1ff] p-4 rounded-xl font-mono text-xs leading-relaxed">
-            <span className="text-[#4edea3] font-bold"># Estructura del Proyecto:</span><br />
-            motogestion/<br />
-            ├── backend/<br />
-            │   ├── database.sql           <span className="text-[#93ccff]"># Script SQL con DDL y datos semilla</span><br />
-            │   ├── inventory_ai.py        <span className="text-[#93ccff]"># Módulo de simulación matemática (Pareto, EOQ, Regresión)</span><br />
-            │   ├── main.py                <span className="text-[#93ccff]"># API FastAPI con rutas REST</span><br />
-            │   ├── requirements.txt       <span className="text-[#93ccff]"># fastapi, pandas, numpy, scikit-learn, etc.</span><br />
-            │   └── README.md<br />
-            └── frontend/                  <span className="text-[#93ccff]"># Interfaz exportada de Stitch adaptada a React</span><br />
-            &nbsp;&nbsp;&nbsp;&nbsp;├── src/components/DashboardView.tsx<br />
-            &nbsp;&nbsp;&nbsp;&nbsp;├── src/components/InventoryView.tsx<br />
-            &nbsp;&nbsp;&nbsp;&nbsp;├── src/components/SimulationView.tsx<br />
-            &nbsp;&nbsp;&nbsp;&nbsp;└── src/components/PurchasesBudgetView.tsx
-          </div>
-
-          {/* Step by step */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="p-4 rounded-xl bg-[#eff4ff] border border-[#dce9ff]/60 flex flex-col gap-2">
               <span className="font-bold text-[#0b1c30] text-sm">Paso 1: Instalar dependencias Python</span>
-              <p className="text-[11px]">
+              <p className="text-[11px] text-[#515f74]">
                 En la terminal, crea un entorno virtual e instala los paquetes científicos:
               </p>
-              <code className="bg-[#0b1c30] text-[#eaf1ff] p-2 rounded text-[11px] font-mono">
+              <code className="bg-[#0b1c30] text-[#eaf1ff] p-2.5 rounded-lg text-[11px] font-mono leading-relaxed">
                 python -m venv venv<br />
                 source venv/bin/activate  # o venv\Scripts\activate<br />
-                pip install -r requirements.txt
+                pip install -r backend/requirements.txt
               </code>
             </div>
 
             <div className="p-4 rounded-xl bg-[#eff4ff] border border-[#dce9ff]/60 flex flex-col gap-2">
               <span className="font-bold text-[#0b1c30] text-sm">Paso 2: Iniciar Servidor FastAPI</span>
-              <p className="text-[11px]">
+              <p className="text-[11px] text-[#515f74]">
                 Ejecuta el servidor en el puerto 8000 con recarga automática:
               </p>
-              <code className="bg-[#0b1c30] text-[#eaf1ff] p-2 rounded text-[11px] font-mono">
+              <code className="bg-[#0b1c30] text-[#eaf1ff] p-2.5 rounded-lg text-[11px] font-mono leading-relaxed">
+                cd backend<br />
                 uvicorn main:app --reload --port 8000
               </code>
             </div>

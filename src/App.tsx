@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { DashboardView } from './components/DashboardView';
@@ -13,20 +13,24 @@ import { PurchasesBudgetView } from './components/PurchasesBudgetView';
 import { BackendDevHubView } from './components/BackendDevHubView';
 import { MovementModal } from './components/modals/MovementModal';
 import { AddProductModal } from './components/modals/AddProductModal';
+import { EditProductModal } from './components/modals/EditProductModal';
 import { PromoPackageModal } from './components/modals/PromoPackageModal';
 import { OrderConfirmationModal } from './components/modals/OrderConfirmationModal';
 import { ConfigModal } from './components/modals/ConfigModal';
-import { SuggestedPurchaseItem } from './types/inventory';
+import { SuggestedPurchaseItem, Repuesto } from './types/inventory';
 import { Check } from 'lucide-react';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [searchValue, setSearchValue] = useState<string>('');
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // Modals
   const [isMovementModalOpen, setIsMovementModalOpen] = useState(false);
   const [movementRepuestoId, setMovementRepuestoId] = useState<number | undefined>(undefined);
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
+  const [isEditProductModalOpen, setIsEditProductModalOpen] = useState(false);
+  const [editingRepuesto, setEditingRepuesto] = useState<Repuesto | null>(null);
   const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
@@ -41,9 +45,32 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 4000);
   };
 
+  // Keyboard Shortcuts (Ctrl+K for search, F2 for Movement)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCurrentTab('inventario');
+        const input = document.querySelector('input[placeholder*="Buscar"]') as HTMLInputElement;
+        if (input) input.focus();
+      } else if (e.key === 'F2') {
+        e.preventDefault();
+        setIsMovementModalOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const handleOpenMovementModal = (repuestoId?: number) => {
     setMovementRepuestoId(repuestoId);
     setIsMovementModalOpen(true);
+  };
+
+  const handleOpenEditModal = (repuesto: Repuesto) => {
+    setEditingRepuesto(repuesto);
+    setIsEditProductModalOpen(true);
   };
 
   const handleOpenApproveModal = (totalCOP: number, items: SuggestedPurchaseItem[]) => {
@@ -71,30 +98,35 @@ export default function App() {
         </div>
       )}
 
-      {/* Fixed Left Navigation Sidebar */}
+      {/* Sidebar with Desktop & Mobile Responsive Drawer */}
       <Sidebar
         currentTab={currentTab}
         onTabChange={(tab) => setCurrentTab(tab)}
         onOpenMovementModal={() => handleOpenMovementModal()}
         onOpenConfigModal={() => setIsConfigModalOpen(true)}
+        isOpenMobile={isMobileSidebarOpen}
+        onCloseMobile={() => setIsMobileSidebarOpen(false)}
       />
 
       {/* Main App Container */}
-      <div className="pl-72 w-full flex flex-col min-h-screen">
+      <div className="pl-0 lg:pl-72 w-full flex flex-col min-h-screen">
         {/* Top Header */}
         <Header
           onOpenMovementModal={() => handleOpenMovementModal()}
+          onOpenMobileMenu={() => setIsMobileSidebarOpen(true)}
+          onOpenConfigModal={() => setIsConfigModalOpen(true)}
           searchValue={searchValue}
           onSearchChange={handleSearchChange}
         />
 
         {/* Dynamic Main View */}
-        <main className="w-full pt-20 px-8 pb-12 flex-1">
+        <main className="w-full pt-20 px-4 sm:px-6 lg:px-8 pb-12 flex-1 max-w-7xl mx-auto">
           {currentTab === 'dashboard' && (
             <DashboardView
               onNavigate={(tab) => setCurrentTab(tab)}
               onOpenMovementModal={() => handleOpenMovementModal()}
               onOpenPromoModal={() => setIsPromoModalOpen(true)}
+              onShowToast={triggerToast}
             />
           )}
 
@@ -102,12 +134,15 @@ export default function App() {
             <InventoryView
               onOpenAddModal={() => setIsAddProductModalOpen(true)}
               onOpenMovementModal={(id) => handleOpenMovementModal(id)}
+              onEditRepuesto={handleOpenEditModal}
+              initialSearch={searchValue}
             />
           )}
 
           {currentTab === 'simulacion-pronosticos' && (
             <SimulationView
               onNavigateToPurchases={() => setCurrentTab('compras-presupuesto')}
+              onShowToast={triggerToast}
             />
           )}
 
@@ -126,7 +161,10 @@ export default function App() {
       {/* Modals */}
       <MovementModal
         isOpen={isMovementModalOpen}
-        onClose={() => setIsMovementModalOpen(false)}
+        onClose={() => {
+          setIsMovementModalOpen(false);
+          setMovementRepuestoId(undefined);
+        }}
         selectedRepuestoId={movementRepuestoId}
         onSuccess={(msg) => triggerToast(msg)}
       />
@@ -134,6 +172,16 @@ export default function App() {
       <AddProductModal
         isOpen={isAddProductModalOpen}
         onClose={() => setIsAddProductModalOpen(false)}
+        onSuccess={(msg) => triggerToast(msg)}
+      />
+
+      <EditProductModal
+        isOpen={isEditProductModalOpen}
+        onClose={() => {
+          setIsEditProductModalOpen(false);
+          setEditingRepuesto(null);
+        }}
+        repuesto={editingRepuesto}
         onSuccess={(msg) => triggerToast(msg)}
       />
 

@@ -1,11 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Wallet, 
   TrendingUp, 
   ShieldCheck, 
   PiggyBank, 
   CheckCircle, 
-  AlertCircle, 
   PauseCircle, 
   ShoppingCart, 
   Sparkles, 
@@ -16,7 +15,9 @@ import {
   Calendar,
   Filter,
   Truck,
-  RotateCcw
+  Download,
+  Search,
+  X
 } from 'lucide-react';
 import { inventoryService, formatCOP } from '../services/inventoryService';
 import { SuggestedPurchaseItem } from '../types/inventory';
@@ -29,8 +30,26 @@ export const PurchasesBudgetView: React.FC<PurchasesBudgetViewProps> = ({ onOpen
   const [purchases, setPurchases] = useState<SuggestedPurchaseItem[]>(() => inventoryService.getSuggestedPurchases());
   const [opportunities, setOpportunities] = useState(() => inventoryService.getOpportunities());
   const [discontinueAlerts, setDiscontinueAlerts] = useState(() => inventoryService.getDiscontinueAlerts());
-  const [budgetLimit, setBudgetLimit] = useState<number>(3500000);
+  const [budgetLimit, setBudgetLimit] = useState<number>(() => inventoryService.getCurrentBudgetCOP());
+  const [isEditingBudget, setIsEditingBudget] = useState(false);
+  const [tempBudgetInput, setTempBudgetInput] = useState<number>(() => inventoryService.getCurrentBudgetCOP());
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Filters
+  const [rotationFilter, setRotationFilter] = useState<string>('Todas');
+  const [supplierFilter, setSupplierFilter] = useState<string>('Todos');
+  const [searchTable, setSearchTable] = useState<string>('');
+
+  // Subscribe to changes
+  useEffect(() => {
+    const unsubscribe = inventoryService.subscribe(() => {
+      setPurchases(inventoryService.getSuggestedPurchases());
+      setOpportunities(inventoryService.getOpportunities());
+      setDiscontinueAlerts(inventoryService.getDiscontinueAlerts());
+      setBudgetLimit(inventoryService.getCurrentBudgetCOP());
+    });
+    return unsubscribe;
+  }, []);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -38,26 +57,19 @@ export const PurchasesBudgetView: React.FC<PurchasesBudgetViewProps> = ({ onOpen
   };
 
   const handleToggleItem = (id: number) => {
-    setPurchases(prev => {
-      const updated = prev.map(p => p.id === id ? { ...p, aprobado: !p.aprobado } : p);
-      inventoryService.togglePurchaseItem(id, !prev.find(p => p.id === id)?.aprobado);
-      return updated;
-    });
+    const item = purchases.find(p => p.id === id);
+    if (item) {
+      inventoryService.togglePurchaseItem(id, !item.aprobado);
+    }
   };
 
   const handleToggleAll = (checked: boolean) => {
-    setPurchases(prev => {
-      const updated = prev.map(p => ({ ...p, aprobado: checked }));
-      inventoryService.setAllPurchasesApproved(checked);
-      return updated;
-    });
+    inventoryService.setAllPurchasesApproved(checked);
   };
 
   const handleAddOpportunity = (oppId: number) => {
     const success = inventoryService.addOpportunityToOrder(oppId);
     if (success) {
-      setOpportunities([...inventoryService.getOpportunities()]);
-      setPurchases([...inventoryService.getSuggestedPurchases()]);
       showToast('Oportunidad de nuevo producto agregada al plan de compras sugerido.');
     }
   };
@@ -65,19 +77,68 @@ export const PurchasesBudgetView: React.FC<PurchasesBudgetViewProps> = ({ onOpen
   const handlePauseSku = (repuestoId: number) => {
     const success = inventoryService.pauseSku(repuestoId);
     if (success) {
-      setDiscontinueAlerts([...inventoryService.getDiscontinueAlerts()]);
       showToast('SKU pausado preventivamente. No se generarán órdenes de compra automáticas.');
     }
   };
 
+  // Extract unique suppliers for filter
+  const suppliers = Array.from(new Set(purchases.map(p => p.proveedor)));
+
+  // Filtered purchases
+  const filteredPurchases = purchases.filter(p => {
+    const matchesRotation = 
+      rotationFilter === 'Todas' ||
+      (rotationFilter === 'Clase A' && p.clasificacion.includes('Clase A')) ||
+      (rotationFilter === 'Clase B' && p.clasificacion.includes('Clase B'));
+
+    const matchesSupplier = 
+      supplierFilter === 'Todos' || p.proveedor === supplierFilter;
+
+    const matchesSearch = 
+      p.nombre.toLowerCase().includes(searchTable.toLowerCase()) ||
+      p.sku.toLowerCase().includes(searchTable.toLowerCase()) ||
+      p.proveedor.toLowerCase().includes(searchTable.toLowerCase());
+
+    return matchesRotation && matchesSupplier && matchesSearch;
+  });
+
   const selectedItems = purchases.filter(p => p.aprobado);
   const totalCostoSugerido = selectedItems.reduce((acc, curr) => acc + curr.costo_total, 0);
   const margenSeguridad = Math.max(0, budgetLimit - totalCostoSugerido);
-  const consumoPct = Math.min(100, Math.round((totalCostoSugerido / budgetLimit) * 1000) / 10);
+  const consumoPct = budgetLimit > 0 ? Math.min(100, Math.round((totalCostoSugerido / budgetLimit) * 1000) / 10) : 0;
   const allSelected = purchases.length > 0 && selectedItems.length === purchases.length;
 
+  const exportPurchasesCSV = () => {
+    const headers = ['SKU', 'Repuesto', 'Detalle', 'Clasificacion', 'Stock Actual', 'Stock Minimo', 'Cantidad Sugerida', 'Unidad', 'Proveedor', 'Tiempo Entrega', 'Costo Unitario (COP)', 'Costo Total (COP)', 'Aprobado'];
+    const rows = selectedItems.map(p => [
+      p.sku,
+      `"${p.nombre.replace(/"/g, '""')}"`,
+      `"${p.detalle}"`,
+      p.clasificacion,
+      p.stock_actual,
+      p.stock_minimo,
+      p.cantidad_sugerida,
+      p.unidad,
+      `"${p.proveedor}"`,
+      `"${p.tiempo_entrega}"`,
+      p.costo_unitario,
+      p.costo_total,
+      p.aprobado ? 'SI' : 'NO'
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.href = encodedUri;
+    link.download = `Orden_Compras_MotoGestion_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Plan de compras exportado a CSV para cotizar con proveedores.');
+  };
+
   return (
-    <div className="flex flex-col gap-6 w-full animate-fadeIn pb-24">
+    <div className="flex flex-col gap-6 w-full animate-fadeIn pb-32">
       {/* Toast notification */}
       {toastMessage && (
         <div className="fixed top-20 right-6 z-50 bg-[#0b1c30] text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-lg border border-[#3f4850] flex items-center gap-2 animate-bounce">
@@ -104,18 +165,15 @@ export const PurchasesBudgetView: React.FC<PurchasesBudgetViewProps> = ({ onOpen
         </div>
 
         {/* Cycle Selector & Action */}
-        <div className="flex items-center gap-2.5 self-start md:self-auto shrink-0">
+        <div className="flex items-center gap-2.5 self-start md:self-auto shrink-0 flex-wrap">
           <div className="flex items-center gap-2 bg-[#eff4ff] px-3.5 py-2 rounded-xl text-xs font-bold text-[#0b1c30] border border-[#dce9ff]/60 shadow-xs">
             <Calendar className="w-4 h-4 text-[#006194]" />
-            <span>Presupuesto Noviembre 2024</span>
+            <span>Presupuesto Mensual Activo</span>
           </div>
           <button
             onClick={() => {
-              const nuevo = prompt('Ingresa el nuevo límite mensual de compras (COP):', budgetLimit.toString());
-              if (nuevo) {
-                const parsed = parseInt(nuevo.replace(/\D/g, ''), 10);
-                if (parsed > 0) setBudgetLimit(parsed);
-              }
+              setTempBudgetInput(budgetLimit);
+              setIsEditingBudget(true);
             }}
             className="flex items-center gap-1.5 bg-white hover:bg-[#eff4ff] text-[#515f74] hover:text-[#0b1c30] px-3.5 py-2 rounded-xl text-xs font-semibold border border-[#e5eeff] shadow-xs transition-colors"
           >
@@ -145,13 +203,15 @@ export const PurchasesBudgetView: React.FC<PurchasesBudgetViewProps> = ({ onOpen
         <div className="bg-white rounded-2xl p-5 border border-[#e5eeff] shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs font-bold">
             <span className="text-[#707881] uppercase tracking-wider">Costo Total Sugerido</span>
-            <span className="inline-flex items-center gap-1 bg-[#ecfdf5] text-[#065f46] px-2 py-0.5 rounded-full text-[10px] font-bold">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
-              Dentro de margen
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+              totalCostoSugerido <= budgetLimit ? 'bg-[#ecfdf5] text-[#065f46]' : 'bg-[#fef2f2] text-[#991b1b]'
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${totalCostoSugerido <= budgetLimit ? 'bg-[#10b981]' : 'bg-[#ba1a1a]'}`} />
+              {totalCostoSugerido <= budgetLimit ? 'Dentro de margen' : 'Excede presupuesto'}
             </span>
           </div>
           <div className="my-2">
-            <div className="text-2xl font-black text-[#006194] tracking-tight">
+            <div className={`text-2xl font-black tracking-tight ${totalCostoSugerido <= budgetLimit ? 'text-[#006194]' : 'text-[#ba1a1a]'}`}>
               {formatCOP(totalCostoSugerido)}
             </div>
             <div className="mt-2">
@@ -161,8 +221,8 @@ export const PurchasesBudgetView: React.FC<PurchasesBudgetViewProps> = ({ onOpen
               </div>
               <div className="w-full h-1.5 bg-[#eff4ff] rounded-full overflow-hidden">
                 <div 
-                  className="h-full bg-[#006194] rounded-full transition-all duration-300"
-                  style={{ width: `${consumoPct}%` }}
+                  className={`h-full rounded-full transition-all duration-300 ${totalCostoSugerido <= budgetLimit ? 'bg-[#006194]' : 'bg-[#ba1a1a]'}`}
+                  style={{ width: `${Math.min(100, consumoPct)}%` }}
                 />
               </div>
             </div>
@@ -201,7 +261,7 @@ export const PurchasesBudgetView: React.FC<PurchasesBudgetViewProps> = ({ onOpen
       {/* 3. Automated Purchase List Section */}
       <section className="bg-white rounded-2xl border border-[#e5eeff] shadow-xs overflow-hidden">
         {/* Table Header / Selection Controls */}
-        <div className="p-4 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#e5eeff]">
+        <div className="p-4 bg-white flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-[#e5eeff]">
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
@@ -216,17 +276,57 @@ export const PurchasesBudgetView: React.FC<PurchasesBudgetViewProps> = ({ onOpen
             </label>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap text-xs text-[#515f74]">
-            <div className="flex items-center gap-1.5 bg-[#eff4ff] px-2.5 py-1 rounded-lg">
-              <Filter className="w-3.5 h-3.5 text-[#707881]" />
-              <span>Rotación:</span>
-              <span className="font-bold text-[#0b1c30]">Todas</span>
+          <div className="flex items-center gap-2.5 flex-wrap text-xs text-[#515f74]">
+            {/* Search */}
+            <div className="relative flex items-center">
+              <Search className="w-3.5 h-3.5 text-[#707881] absolute left-2.5 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Buscar sugerencia..."
+                value={searchTable}
+                onChange={(e) => setSearchTable(e.target.value)}
+                className="h-8 pl-8 pr-3 rounded-lg bg-[#eff4ff] text-xs text-[#0b1c30] placeholder-[#707881] outline-none border border-transparent focus:border-[#93ccff]"
+              />
             </div>
+
+            {/* Rotación Interactive Select */}
             <div className="flex items-center gap-1.5 bg-[#eff4ff] px-2.5 py-1 rounded-lg">
-              <Truck className="w-3.5 h-3.5 text-[#707881]" />
-              <span>Proveedor:</span>
-              <span className="font-bold text-[#0b1c30]">Todos</span>
+              <Filter className="w-3.5 h-3.5 text-[#006194]" />
+              <span className="font-semibold text-[#707881]">Rotación:</span>
+              <select
+                value={rotationFilter}
+                onChange={(e) => setRotationFilter(e.target.value)}
+                className="bg-transparent text-xs font-bold text-[#0b1c30] outline-none cursor-pointer"
+              >
+                <option value="Todas">Todas</option>
+                <option value="Clase A">Clase A (Alta)</option>
+                <option value="Clase B">Clase B (Media)</option>
+              </select>
             </div>
+
+            {/* Proveedor Interactive Select */}
+            <div className="flex items-center gap-1.5 bg-[#eff4ff] px-2.5 py-1 rounded-lg">
+              <Truck className="w-3.5 h-3.5 text-[#006194]" />
+              <span className="font-semibold text-[#707881]">Proveedor:</span>
+              <select
+                value={supplierFilter}
+                onChange={(e) => setSupplierFilter(e.target.value)}
+                className="bg-transparent text-xs font-bold text-[#0b1c30] outline-none cursor-pointer max-w-[150px] truncate"
+              >
+                <option value="Todos">Todos</option>
+                {suppliers.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              onClick={exportPurchasesCSV}
+              className="flex items-center gap-1.5 bg-[#eff4ff] hover:bg-[#e5eeff] text-[#006194] px-3 py-1.5 rounded-lg text-xs font-bold border border-[#dce9ff] transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>CSV</span>
+            </button>
           </div>
         </div>
 
@@ -246,92 +346,100 @@ export const PurchasesBudgetView: React.FC<PurchasesBudgetViewProps> = ({ onOpen
               </tr>
             </thead>
             <tbody className="divide-y divide-[#f0f4fa]">
-              {purchases.map((item) => (
-                <tr 
-                  key={item.id} 
-                  className={`hover:bg-[#eff4ff]/50 transition-colors ${
-                    !item.aprobado ? 'opacity-60 bg-[#f8f9ff]' : ''
-                  }`}
-                >
-                  <td className="py-3.5 px-4 text-center">
-                    <input
-                      type="checkbox"
-                      checked={item.aprobado}
-                      onChange={() => handleToggleItem(item.id)}
-                      className="w-4 h-4 rounded text-[#006194] accent-[#006194] cursor-pointer"
-                    />
-                  </td>
-
-                  <td className="py-3.5 px-4">
-                    <div className="flex flex-col">
-                      <span className="font-bold text-xs text-[#0b1c30]">
-                        {item.nombre}
-                      </span>
-                      <span className="text-[11px] text-[#515f74] mt-0.5">
-                        {item.detalle}
-                      </span>
-                    </div>
-                  </td>
-
-                  <td className="py-3.5 px-4 whitespace-nowrap">
-                    {item.clasificacion.includes('Clase A') ? (
-                      <span className="inline-flex items-center gap-1 bg-[#ecfdf5] text-[#065f46] px-2 py-0.5 rounded-full text-[11px] font-bold">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
-                        Clase A - Alta
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 bg-[#fffbeb] text-[#92400e] px-2 py-0.5 rounded-full text-[11px] font-bold">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b]" />
-                        Clase B - Media
-                      </span>
-                    )}
-                  </td>
-
-                  <td className="py-3.5 px-4 whitespace-nowrap">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[#ba1a1a] font-bold">{item.stock_actual} {item.unidad.slice(0, 3)}.</span>
-                      <span className="text-[#707881]">/ Mín {item.stock_minimo} {item.unidad.slice(0, 3)}.</span>
-                    </div>
-                  </td>
-
-                  <td className="py-3.5 px-4 whitespace-nowrap">
-                    <span className="font-bold text-[#0b1c30] bg-[#eff4ff] px-2.5 py-1 rounded-lg border border-[#dce9ff]/60">
-                      {item.cantidad_sugerida} {item.unidad}
-                    </span>
-                  </td>
-
-                  <td className="py-3.5 px-4 whitespace-nowrap">
-                    <div className="flex flex-col">
-                      <span className="font-semibold text-xs text-[#0b1c30]">{item.proveedor}</span>
-                      <span className="text-[10px] text-[#707881]">{item.tiempo_entrega}</span>
-                    </div>
-                  </td>
-
-                  <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                    <div className="flex flex-col items-end">
-                      <span className="font-bold text-xs text-[#0b1c30]">
-                        {formatCOP(item.costo_total)}
-                      </span>
-                      <span className="text-[10px] text-[#707881]">
-                        ({formatCOP(item.costo_unitario)} / {item.unidad.slice(0, -1)})
-                      </span>
-                    </div>
-                  </td>
-
-                  <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                    {item.aprobado ? (
-                      <span className="inline-flex items-center gap-1 bg-[#eff4ff] text-[#006194] px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-[#bfdbfe]">
-                        <CheckCircle className="w-3 h-3" />
-                        Aprobado
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 bg-[#f1f5f9] text-[#64748b] px-2.5 py-0.5 rounded-full text-[11px] font-medium">
-                        Descartado
-                      </span>
-                    )}
+              {filteredPurchases.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-8 text-center text-[#707881]">
+                    No hay sugerencias de compra para los filtros seleccionados.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredPurchases.map((item) => (
+                  <tr 
+                    key={item.id} 
+                    className={`hover:bg-[#eff4ff]/50 transition-colors ${
+                      !item.aprobado ? 'opacity-60 bg-[#f8f9ff]' : ''
+                    }`}
+                  >
+                    <td className="py-3.5 px-4 text-center">
+                      <input
+                        type="checkbox"
+                        checked={item.aprobado}
+                        onChange={() => handleToggleItem(item.id)}
+                        className="w-4 h-4 rounded text-[#006194] accent-[#006194] cursor-pointer"
+                      />
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      <div className="flex flex-col">
+                        <span className="font-bold text-xs text-[#0b1c30]">
+                          {item.nombre}
+                        </span>
+                        <span className="text-[11px] text-[#515f74] mt-0.5">
+                          {item.detalle}
+                        </span>
+                      </div>
+                    </td>
+
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      {item.clasificacion.includes('Clase A') ? (
+                        <span className="inline-flex items-center gap-1 bg-[#ecfdf5] text-[#065f46] px-2 py-0.5 rounded-full text-[11px] font-bold">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
+                          Clase A - Alta
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 bg-[#fffbeb] text-[#92400e] px-2 py-0.5 rounded-full text-[11px] font-bold">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b]" />
+                          Clase B - Media
+                        </span>
+                      )}
+                    </td>
+
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <div className="flex items-center gap-1">
+                        <span className="text-[#ba1a1a] font-bold">{item.stock_actual} {item.unidad.slice(0, 3)}.</span>
+                        <span className="text-[#707881]">/ Mín {item.stock_minimo} {item.unidad.slice(0, 3)}.</span>
+                      </div>
+                    </td>
+
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <span className="font-bold text-[#0b1c30] bg-[#eff4ff] px-2.5 py-1 rounded-lg border border-[#dce9ff]/60">
+                        {item.cantidad_sugerida} {item.unidad}
+                      </span>
+                    </td>
+
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-xs text-[#0b1c30]">{item.proveedor}</span>
+                        <span className="text-[10px] text-[#707881]">{item.tiempo_entrega}</span>
+                      </div>
+                    </td>
+
+                    <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                      <div className="flex flex-col items-end">
+                        <span className="font-bold text-xs text-[#0b1c30]">
+                          {formatCOP(item.costo_total)}
+                        </span>
+                        <span className="text-[10px] text-[#707881]">
+                          ({formatCOP(item.costo_unitario)} / {item.unidad.slice(0, -1)})
+                        </span>
+                      </div>
+                    </td>
+
+                    <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                      {item.aprobado ? (
+                        <span className="inline-flex items-center gap-1 bg-[#eff4ff] text-[#006194] px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-[#bfdbfe]">
+                          <CheckCircle className="w-3 h-3" />
+                          Aprobado
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 bg-[#f1f5f9] text-[#64748b] px-2.5 py-0.5 rounded-full text-[11px] font-medium">
+                          Descartado
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -477,8 +585,8 @@ export const PurchasesBudgetView: React.FC<PurchasesBudgetViewProps> = ({ onOpen
         </div>
       </section>
 
-      {/* 5. Sticky Bottom Execution Bar */}
-      <aside className="fixed bottom-4 left-76 right-6 z-40 bg-white/95 backdrop-blur-md rounded-2xl p-4 border border-[#cce5ff] shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+      {/* 5. Sticky Bottom Execution Bar (Properly anchored and responsive) */}
+      <aside className="fixed bottom-4 left-4 lg:left-80 right-4 lg:right-8 z-40 bg-white/95 backdrop-blur-md rounded-2xl p-4 border border-[#cce5ff] shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-[#eff4ff] flex items-center justify-center text-[#006194] shrink-0">
             <BookmarkCheck className="w-5 h-5" />
@@ -518,6 +626,91 @@ export const PurchasesBudgetView: React.FC<PurchasesBudgetViewProps> = ({ onOpen
           </button>
         </div>
       </aside>
+
+      {/* In-App Budget Limit Editor Modal */}
+      {isEditingBudget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl border border-[#e5eeff] relative">
+            <button
+              onClick={() => setIsEditingBudget(false)}
+              className="absolute right-4 top-4 text-[#707881] hover:text-[#0b1c30] p-1 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2.5 mb-4">
+              <div className="w-8 h-8 rounded-lg bg-[#eff4ff] flex items-center justify-center text-[#006194]">
+                <Sliders className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[#0b1c30]">Ajustar Límite Presupuestal</h3>
+                <span className="text-[11px] text-[#515f74]">Monto mensual para compras</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <div className="relative">
+                <span className="absolute left-3.5 top-2.5 text-xs font-bold text-[#707881]">$</span>
+                <input
+                  type="number"
+                  step="100000"
+                  value={tempBudgetInput}
+                  onChange={(e) => setTempBudgetInput(Math.max(100000, Number(e.target.value)))}
+                  className="w-full h-10 pl-8 pr-12 rounded-xl bg-[#eff4ff] text-sm font-bold text-[#0b1c30] outline-none border border-transparent focus:border-[#93ccff]"
+                />
+                <span className="absolute right-3.5 top-2.5 text-xs font-bold text-[#515f74]">COP</span>
+              </div>
+
+              {/* Preset buttons */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setTempBudgetInput(2500000)}
+                  className="px-2 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#e5eeff] text-[11px] font-semibold text-[#0b1c30]"
+                >
+                  $ 2.500.000
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTempBudgetInput(3500000)}
+                  className="px-2 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#e5eeff] text-[11px] font-semibold text-[#0b1c30]"
+                >
+                  $ 3.500.000
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTempBudgetInput(5000000)}
+                  className="px-2 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#e5eeff] text-[11px] font-semibold text-[#0b1c30]"
+                >
+                  $ 5.000.000
+                </button>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#f0f4fa] mt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingBudget(false)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-[#515f74] hover:bg-[#eff4ff]"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    inventoryService.setCurrentBudgetCOP(tempBudgetInput);
+                    setBudgetLimit(tempBudgetInput);
+                    setIsEditingBudget(false);
+                    showToast(`Presupuesto disponible actualizado a ${formatCOP(tempBudgetInput)}`);
+                  }}
+                  className="px-4 py-1.5 rounded-lg text-xs font-bold bg-[#006194] hover:bg-[#007bb9] text-white shadow-xs"
+                >
+                  Guardar Límite
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
